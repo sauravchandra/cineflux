@@ -6,10 +6,13 @@ import com.cineflux.data.db.DownloadEntity
 import com.cineflux.data.model.Movie
 import com.cineflux.data.model.TorrentInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,7 +25,16 @@ class TorrentRepository @Inject constructor(
 ) {
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    val allDownloads: Flow<List<DownloadEntity>> = downloadDao.getAllDownloads()
+    val allDownloads: Flow<List<DownloadEntity>> = try {
+        downloadDao.getAllDownloads()
+            .catch { e ->
+                Log.e("TorrentRepository", "Database read failed: ${e.message}")
+                emit(emptyList())
+            }
+    } catch (e: Exception) {
+        Log.e("TorrentRepository", "Database init failed: ${e.message}")
+        emptyFlow()
+    }
 
     val liveProgress: StateFlow<Map<String, DownloadProgress>>
         get() = torrentEngine.downloads
@@ -70,5 +82,10 @@ class TorrentRepository @Inject constructor(
         DownloadService.remove(context, infoHash)
     }
 
-    suspend fun getDownload(id: Long): DownloadEntity? = downloadDao.getById(id)
+    suspend fun getDownload(id: Long): DownloadEntity? = try {
+        downloadDao.getById(id)
+    } catch (e: Exception) {
+        Log.e("TorrentRepository", "getDownload failed: ${e.message}")
+        null
+    }
 }

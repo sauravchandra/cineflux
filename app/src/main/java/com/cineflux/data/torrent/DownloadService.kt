@@ -123,13 +123,17 @@ class DownloadService : Service() {
         serviceScope.launch {
             torrentEngine.finishedTorrents.collectLatest { hashes ->
                 hashes.forEach { hash ->
-                    var filePath = torrentEngine.getFilePath(hash)
-                    if (filePath == null) {
-                        filePath = findVideoFile(torrentEngine.defaultSavePath)
-                    }
-                    if (filePath != null) {
-                        android.util.Log.i("DownloadService", "Marking completed: $hash -> $filePath")
-                        downloadDao.markCompleted(hash, filePath)
+                    try {
+                        var filePath = torrentEngine.getFilePath(hash)
+                        if (filePath == null) {
+                            filePath = findVideoFile(torrentEngine.defaultSavePath)
+                        }
+                        if (filePath != null) {
+                            android.util.Log.i("DownloadService", "Marking completed: $hash -> $filePath")
+                            downloadDao.markCompleted(hash, filePath)
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("DownloadService", "observeFinished failed for $hash: ${e.message}")
                     }
                 }
             }
@@ -147,55 +151,59 @@ class DownloadService : Service() {
     private fun syncProgress() {
         serviceScope.launch {
             while (isActive) {
-                torrentEngine.downloads.value.forEach { (hash, progress) ->
-                    val status = when (progress.state) {
-                        TorrentState.DOWNLOADING -> DownloadEntity.STATUS_DOWNLOADING
-                        TorrentState.FINISHED, TorrentState.SEEDING -> DownloadEntity.STATUS_COMPLETED
-                        TorrentState.PAUSED -> DownloadEntity.STATUS_PAUSED
-                        TorrentState.ERROR -> DownloadEntity.STATUS_FAILED
-                        else -> DownloadEntity.STATUS_DOWNLOADING
-                    }
-
-                    val existing = downloadDao.getByInfoHash(hash)
-                    if (existing != null) {
-                        if (status == DownloadEntity.STATUS_COMPLETED && existing.filePath == null) {
-                            val path = torrentEngine.getFilePath(hash) ?: findVideoFile(torrentEngine.defaultSavePath)
-                            if (path != null) downloadDao.markCompleted(hash, path)
+                try {
+                    torrentEngine.downloads.value.forEach { (hash, progress) ->
+                        val status = when (progress.state) {
+                            TorrentState.DOWNLOADING -> DownloadEntity.STATUS_DOWNLOADING
+                            TorrentState.FINISHED, TorrentState.SEEDING -> DownloadEntity.STATUS_COMPLETED
+                            TorrentState.PAUSED -> DownloadEntity.STATUS_PAUSED
+                            TorrentState.ERROR -> DownloadEntity.STATUS_FAILED
+                            else -> DownloadEntity.STATUS_DOWNLOADING
                         }
-                        downloadDao.updateProgress(hash, progress.downloadedBytes, progress.totalBytes, status)
-                    } else {
-                        downloadDao.insert(DownloadEntity(
-                            tmdbId = 0,
-                            title = progress.name,
-                            posterUrl = null,
-                            quality = "",
-                            magnetUrl = "",
-                            infoHash = hash,
-                            totalBytes = progress.totalBytes,
-                            downloadedBytes = progress.downloadedBytes,
-                            status = status
-                        ))
-                    }
-                }
 
-                val allDownloads = downloadDao.getActiveDownloads()
-                allDownloads.forEach { dl ->
-                    if (dl.filePath == null) {
-                        val path = findVideoFile(torrentEngine.defaultSavePath)
-                        if (path != null) {
-                            val fileSize = java.io.File(path).length()
-                            if (dl.totalBytes > 0 && fileSize >= dl.totalBytes * 0.95 || fileSize > 500_000_000) {
-                                android.util.Log.i("DownloadService", "Sync: complete on disk: ${dl.title} (${fileSize / 1_000_000}MB)")
-                                downloadDao.markCompleted(dl.infoHash, path)
+                        val existing = downloadDao.getByInfoHash(hash)
+                        if (existing != null) {
+                            if (status == DownloadEntity.STATUS_COMPLETED && existing.filePath == null) {
+                                val path = torrentEngine.getFilePath(hash) ?: findVideoFile(torrentEngine.defaultSavePath)
+                                if (path != null) downloadDao.markCompleted(hash, path)
+                            }
+                            downloadDao.updateProgress(hash, progress.downloadedBytes, progress.totalBytes, status)
+                        } else {
+                            downloadDao.insert(DownloadEntity(
+                                tmdbId = 0,
+                                title = progress.name,
+                                posterUrl = null,
+                                quality = "",
+                                magnetUrl = "",
+                                infoHash = hash,
+                                totalBytes = progress.totalBytes,
+                                downloadedBytes = progress.downloadedBytes,
+                                status = status
+                            ))
+                        }
+                    }
+
+                    val allDownloads = downloadDao.getActiveDownloads()
+                    allDownloads.forEach { dl ->
+                        if (dl.filePath == null) {
+                            val path = findVideoFile(torrentEngine.defaultSavePath)
+                            if (path != null) {
+                                val fileSize = java.io.File(path).length()
+                                if (dl.totalBytes > 0 && fileSize >= dl.totalBytes * 0.95 || fileSize > 500_000_000) {
+                                    android.util.Log.i("DownloadService", "Sync: complete on disk: ${dl.title} (${fileSize / 1_000_000}MB)")
+                                    downloadDao.markCompleted(dl.infoHash, path)
+                                }
                             }
                         }
                     }
-                }
-                val activeCount = allDownloads.count { it.status != DownloadEntity.STATUS_COMPLETED }
-                if (activeCount > 0) {
-                    updateNotification("Downloading $activeCount file(s)")
-                } else {
-                    updateNotification("No active downloads")
+                    val activeCount = allDownloads.count { it.status != DownloadEntity.STATUS_COMPLETED }
+                    if (activeCount > 0) {
+                        updateNotification("Downloading $activeCount file(s)")
+                    } else {
+                        updateNotification("No active downloads")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("DownloadService", "syncProgress failed: ${e.message}")
                 }
 
                 delay(2000)

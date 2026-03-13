@@ -30,45 +30,51 @@ class PreferencesManager @Inject constructor(
 
     fun getAvailableStorageLocations(): List<StorageLocation> {
         val locations = mutableListOf<StorageLocation>()
+        val seenRoots = mutableSetOf<String>()
 
-        val externalDirs = arrayOf(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
-        )
-        externalDirs.forEachIndexed { index, dir ->
-            if (dir == null) return@forEachIndexed
-            val cinefluxDir = File(dir, "CineFlux")
+        val internalMovies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+        if (internalMovies != null) {
+            val cinefluxDir = File(internalMovies, "CineFlux")
             if (!cinefluxDir.exists()) cinefluxDir.mkdirs()
-            val name = if (index == 0) "Internal Storage" else "External Storage ${if (index > 1) index else ""}"
+            seenRoots.add(Environment.getExternalStorageDirectory().absolutePath)
             locations.add(
                 StorageLocation(
-                    name = name.trim(),
+                    name = "Internal Storage",
                     path = cinefluxDir.absolutePath,
                     freeSpace = getFreeSpace(cinefluxDir.absolutePath)
                 )
             )
         }
 
-        try {
-            val storageDir = File("/storage")
-            storageDir.listFiles()?.filter {
-                it.isDirectory && it.name != "emulated" && it.name != "self"
-            }?.forEach { vol ->
-                val cinefluxDir = File(vol, "CineFlux")
-                if (locations.any { it.path.contains(vol.name) }) return@forEach
-                try {
-                    if (!cinefluxDir.exists()) cinefluxDir.mkdirs()
-                    if (cinefluxDir.canWrite()) {
-                        locations.add(
-                            StorageLocation(
-                                name = "USB/SD: ${vol.name}",
-                                path = cinefluxDir.absolutePath,
-                                freeSpace = getFreeSpace(cinefluxDir.absolutePath)
-                            )
-                        )
-                    }
-                } catch (_: Exception) { }
+        context.getExternalFilesDirs(null)?.filterNotNull()?.forEach { appDir ->
+            val volumeRoot = extractVolumeRoot(appDir.absolutePath) ?: return@forEach
+            if (volumeRoot in seenRoots) return@forEach
+            seenRoots.add(volumeRoot)
+
+            val volumeName = File(volumeRoot).name
+            val cinefluxDir = File(volumeRoot, "CineFlux")
+            if (!cinefluxDir.exists()) cinefluxDir.mkdirs()
+
+            if (cinefluxDir.canWrite()) {
+                locations.add(
+                    StorageLocation(
+                        name = "USB/SD: $volumeName",
+                        path = cinefluxDir.absolutePath,
+                        freeSpace = getFreeSpace(cinefluxDir.absolutePath)
+                    )
+                )
+            } else {
+                val fallbackDir = File(appDir, "CineFlux")
+                if (!fallbackDir.exists()) fallbackDir.mkdirs()
+                locations.add(
+                    StorageLocation(
+                        name = "USB/SD: $volumeName",
+                        path = fallbackDir.absolutePath,
+                        freeSpace = getFreeSpace(appDir.absolutePath)
+                    )
+                )
             }
-        } catch (_: Exception) { }
+        }
 
         if (locations.isEmpty()) {
             locations.add(
@@ -81,6 +87,13 @@ class PreferencesManager @Inject constructor(
         }
 
         return locations
+    }
+
+    private fun extractVolumeRoot(appDirPath: String): String? {
+        val marker = "/Android/data/"
+        val idx = appDirPath.indexOf(marker)
+        if (idx <= 0) return null
+        return appDirPath.substring(0, idx)
     }
 
     private fun getFreeSpace(path: String): Long {

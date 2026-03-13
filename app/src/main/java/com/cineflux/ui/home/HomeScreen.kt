@@ -307,7 +307,7 @@ private fun MovieCategoryRow(
             contentPadding = PaddingValues(horizontal = 48.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(movies, key = { it.tmdbId }) { movie ->
+            items(movies, key = { it.tmdbId }, contentType = { "movie" }) { movie ->
                 MovieCard(
                     movie = movie,
                     onClick = { onMovieClick(movie.tmdbId) },

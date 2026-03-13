@@ -22,7 +22,7 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "cineflux.db"
-        ).build()
+        ).fallbackToDestructiveMigration().build()
     }
 
     @Provides

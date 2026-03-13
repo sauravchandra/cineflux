@@ -84,7 +84,7 @@ fun CategoryScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            items(movies, key = { it.tmdbId }) { movie ->
+            items(movies, key = { it.tmdbId }, contentType = { "movie" }) { movie ->
                 MovieCard(
                     movie = movie,
                     onClick = { onMovieClick(movie.tmdbId) }

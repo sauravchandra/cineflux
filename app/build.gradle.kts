@@ -100,4 +100,6 @@ dependencies {
     implementation("org.libtorrent4j:libtorrent4j-android-arm:2.0.6-26")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 }

@@ -83,7 +83,7 @@ fun DownloadsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(bottom = 40.dp)
             ) {
-                items(downloads, key = { it.entity.id }) { item ->
+                items(downloads, key = { it.entity.id }, contentType = { "download" }) { item ->
                     DownloadRow(
                         item = item,
                         onPlay = { onPlayClick(item.entity.id) },

@@ -109,7 +109,7 @@ class TorrentEngine @Inject constructor(
                 org.libtorrent4j.swig.settings_pack.int_types.aio_threads.swigValue(), 4
             )
             settings.set_int(
-                org.libtorrent4j.swig.settings_pack.int_types.checking_mem_usage.swigValue(), 256
+                org.libtorrent4j.swig.settings_pack.int_types.checking_mem_usage.swigValue(), 32
             )
             settings.set_int(
                 org.libtorrent4j.swig.settings_pack.int_types.suggest_mode.swigValue(), 1
@@ -230,6 +230,16 @@ class TorrentEngine @Inject constructor(
         scope?.launch {
             try {
                 val sm = sessionManager as org.libtorrent4j.SessionManager
+
+                val existingHandle = sm.find(org.libtorrent4j.Sha1Hash.parseHex(infoHash))
+                if (existingHandle != null && existingHandle.isValid()) {
+                    Log.i(TAG, "Already in session, resuming: $infoHash")
+                    handles[infoHash] = existingHandle
+                    pendingMagnets.remove(infoHash)
+                    existingHandle.resume()
+                    return@launch
+                }
+
                 Log.i(TAG, "Resolving metadata...")
                 sm.download(magnetUrl, saveDir, org.libtorrent4j.swig.torrent_flags_t())
                 Log.i(TAG, "Metadata resolved for $infoHash")
@@ -240,6 +250,7 @@ class TorrentEngine @Inject constructor(
                     pendingMagnets.remove(infoHash)
                     tuneHandle(handle)
                     Log.i(TAG, "Download active: ${handle.torrentFile()?.name() ?: "unknown"}")
+                    watchChecking(infoHash, handle)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Download failed: ${e.message}", e)
@@ -248,6 +259,35 @@ class TorrentEngine @Inject constructor(
         }
 
         return infoHash
+    }
+
+    private fun watchChecking(infoHash: String, handle: org.libtorrent4j.TorrentHandle) {
+        scope?.launch {
+            var elapsed = 0
+            while (elapsed < 30_000 && isStarted) {
+                delay(2000)
+                elapsed += 2000
+                try {
+                    val state = handle.status().state()
+                    if (state != org.libtorrent4j.TorrentStatus.State.CHECKING_FILES &&
+                        state != org.libtorrent4j.TorrentStatus.State.CHECKING_RESUME_DATA) {
+                        return@launch
+                    }
+                } catch (_: Exception) { return@launch }
+            }
+            try {
+                val state = handle.status().state()
+                if (state == org.libtorrent4j.TorrentStatus.State.CHECKING_FILES ||
+                    state == org.libtorrent4j.TorrentStatus.State.CHECKING_RESUME_DATA) {
+                    Log.w(TAG, "Checking stuck for $infoHash, forcing reannounce + resume")
+                    handle.unsetFlags(org.libtorrent4j.TorrentFlags.AUTO_MANAGED)
+                    handle.resume()
+                    handle.forceReannounce()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "watchChecking error: ${e.message}")
+            }
+        }
     }
 
     private fun tuneHandle(handle: org.libtorrent4j.TorrentHandle) {

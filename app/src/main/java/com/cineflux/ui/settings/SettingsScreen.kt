@@ -23,8 +23,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,7 +51,9 @@ fun SettingsScreen(onBack: () -> Unit) {
     }
 
     var currentPath by remember { mutableStateOf(prefsManager.downloadPath) }
-    val locations = remember { prefsManager.getAvailableStorageLocations() }
+    val locations by produceState<List<StorageLocation>>(emptyList()) {
+        value = withContext(Dispatchers.IO) { prefsManager.getAvailableStorageLocations() }
+    }
 
     Column(
         modifier = Modifier

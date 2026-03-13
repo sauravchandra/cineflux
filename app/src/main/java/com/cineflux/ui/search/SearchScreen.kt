@@ -98,7 +98,7 @@ fun SearchScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(state.results, key = { it.tmdbId }) { movie ->
+                    items(state.results, key = { it.tmdbId }, contentType = { "movie" }) { movie ->
                         MovieCard(
                             movie = movie,
                             onClick = { onMovieClick(movie.tmdbId) }

@@ -7,10 +7,12 @@ import com.cineflux.data.PreferencesManager
 import com.cineflux.data.repository.SubtitleRepository
 import com.cineflux.data.torrent.TorrentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class PlayerState(
@@ -66,11 +68,11 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private fun findVideoFile(): String? {
+    private suspend fun findVideoFile(): String? = withContext(Dispatchers.IO) {
         val videoExts = listOf(".mkv", ".mp4", ".avi", ".mov", ".wmv")
         val downloadDir = java.io.File(preferencesManager.downloadPath)
-        if (!downloadDir.exists()) return null
-        return downloadDir.listFiles()
+        if (!downloadDir.exists()) return@withContext null
+        downloadDir.listFiles()
             ?.filter { file -> videoExts.any { file.name.endsWith(it, ignoreCase = true) } }
             ?.maxByOrNull { it.lastModified() }
             ?.absolutePath
