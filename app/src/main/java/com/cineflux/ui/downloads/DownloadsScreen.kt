@@ -151,7 +151,7 @@ private fun DownloadRow(
 
             if (!item.isCompleted) {
                 val progress = item.displayProgress.coerceIn(0f, 1f).let { if (it.isNaN()) 0f else it }
-                val resuming = item.isResuming
+                val resuming = item.isNotReady
 
                 val pulseAlpha = if (resuming) {
                     val transition = rememberInfiniteTransition(label = "resume")

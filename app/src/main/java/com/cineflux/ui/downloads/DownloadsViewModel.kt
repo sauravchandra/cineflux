@@ -19,13 +19,19 @@ data class DownloadItem(
     val liveProgress: DownloadProgress?,
     val localPaused: Boolean = false
 ) {
+    val isPreparing: Boolean
+        get() = liveProgress?.state == TorrentState.DOWNLOADING_METADATA ||
+                liveProgress?.state == TorrentState.UNKNOWN
+
     val isResuming: Boolean
-        get() = liveProgress?.state == TorrentState.CHECKING ||
-                liveProgress?.state == TorrentState.DOWNLOADING_METADATA
+        get() = liveProgress?.state == TorrentState.CHECKING
+
+    val isNotReady: Boolean
+        get() = isPreparing || isResuming
 
     val displayProgress: Float
         get() {
-            if (isResuming) {
+            if (isNotReady) {
                 return if (entity.totalBytes > 0) entity.downloadedBytes.toFloat() / entity.totalBytes
                 else 0f
             }
@@ -44,6 +50,7 @@ data class DownloadItem(
     val speedText: String
         get() {
             if (localPaused) return "Paused"
+            if (isPreparing) return "Preparing…"
             if (isResuming) return "Resuming…"
             val rate = liveProgress?.downloadRate ?: return ""
             return when {

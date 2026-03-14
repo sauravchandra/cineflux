@@ -80,8 +80,8 @@ class DownloadService : Service() {
             }
             ACTION_PAUSE -> {
                 val hash = intent.getStringExtra(EXTRA_INFO_HASH) ?: return START_STICKY
-                torrentEngine.pauseDownload(hash)
                 serviceScope.launch {
+                    torrentEngine.pauseDownload(hash)
                     downloadDao.getByInfoHash(hash)?.let {
                         downloadDao.updateStatus(it.id, DownloadEntity.STATUS_PAUSED)
                     }
@@ -89,8 +89,8 @@ class DownloadService : Service() {
             }
             ACTION_RESUME -> {
                 val hash = intent.getStringExtra(EXTRA_INFO_HASH) ?: return START_STICKY
-                torrentEngine.resumeDownload(hash)
                 serviceScope.launch {
+                    torrentEngine.resumeDownload(hash)
                     downloadDao.getByInfoHash(hash)?.let {
                         downloadDao.updateStatus(it.id, DownloadEntity.STATUS_DOWNLOADING)
                     }
@@ -98,9 +98,9 @@ class DownloadService : Service() {
             }
             ACTION_REMOVE -> {
                 val hash = intent.getStringExtra(EXTRA_INFO_HASH) ?: return START_STICKY
-                val filePath = torrentEngine.getFilePath(hash)
-                torrentEngine.removeDownload(hash, deleteFiles = true)
                 serviceScope.launch {
+                    val filePath = torrentEngine.getFilePath(hash)
+                    torrentEngine.removeDownload(hash, deleteFiles = true)
                     val dl = downloadDao.getByInfoHash(hash)
                     if (dl != null) {
                         val pathToClean = filePath ?: dl.filePath
