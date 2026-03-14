@@ -192,8 +192,9 @@ private fun DownloadRow(
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
+                val progressText = "${(progress * 100).toInt()}% · ${item.speedText}"
                 Text(
-                    text = "${(progress * 100).toInt()}% · ${item.speedText}",
+                    text = progressText,
                     style = MaterialTheme.typography.labelMedium,
                     color = if (resuming) androidx.compose.ui.graphics.Color(0xFFFF9800) else CineFluxGold
                 )

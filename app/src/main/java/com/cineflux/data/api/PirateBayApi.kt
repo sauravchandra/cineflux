@@ -15,12 +15,23 @@ interface PirateBayApi {
     companion object {
         const val BASE_URL = "https://apibay.org/"
 
-        private val TRACKERS = listOf(
+        val TRACKERS = listOf(
             "udp://tracker.opentrackr.org:1337/announce",
+            "udp://open.stealth.si:80/announce",
+            "udp://tracker.openbittorrent.com:80/announce",
             "udp://open.demonii.com:1337/announce",
-            "udp://tracker.openbittorrent.com:80",
-            "udp://p4p.arenabg.com:1337",
-            "udp://exodus.desync.com:6969/announce"
+            "udp://exodus.desync.com:6969/announce",
+            "udp://tracker.torrent.eu.org:451/announce",
+            "udp://tracker.dler.com:6969/announce",
+            "udp://tracker.srv00.com:6969/announce",
+            "udp://tracker.opentorrent.top:6969/announce",
+            "udp://tracker.qu.ax:6969/announce",
+            "udp://tracker.breizh.pm:6969/announce",
+            "udp://p4p.arenabg.com:1337/announce",
+            "udp://tracker.moeking.me:6969/announce",
+            "udp://explodie.org:6969/announce",
+            "udp://tracker.tiny-vps.com:6969/announce",
+            "http://tracker.bt4g.com:2095/announce"
         )
 
         fun buildMagnetUrl(hash: String, name: String): String {

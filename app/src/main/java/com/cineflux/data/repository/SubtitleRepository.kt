@@ -10,6 +10,7 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -17,8 +18,12 @@ import javax.inject.Singleton
 @Singleton
 class SubtitleRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val okHttpClient: OkHttpClient
+    baseClient: OkHttpClient
 ) {
+    private val okHttpClient = baseClient.newBuilder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
     suspend fun findAndDownloadSubtitle(movieTitle: String, videoFilePath: String): String? {
         return withContext(Dispatchers.IO) {
             try {

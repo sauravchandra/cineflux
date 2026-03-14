@@ -30,16 +30,9 @@ data class DownloadItem(
         get() = isPreparing || isResuming
 
     val displayProgress: Float
-        get() {
-            if (isNotReady) {
-                return if (entity.totalBytes > 0) entity.downloadedBytes.toFloat() / entity.totalBytes
-                else 0f
-            }
-            return liveProgress?.progress ?: run {
-                if (entity.totalBytes > 0) entity.downloadedBytes.toFloat() / entity.totalBytes
-                else 0f
-            }
-        }
+        get() = liveProgress?.progress
+            ?: if (entity.totalBytes > 0) entity.downloadedBytes.toFloat() / entity.totalBytes
+            else 0f
 
     val isCompleted: Boolean
         get() = entity.status == DownloadEntity.STATUS_COMPLETED

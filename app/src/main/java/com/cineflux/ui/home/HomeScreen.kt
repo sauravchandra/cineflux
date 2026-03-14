@@ -108,7 +108,7 @@ fun HomeScreen(
             }
 
             state.categories.forEachIndexed { index, category ->
-                item(key = category.title) {
+                item(key = category.path.ifBlank { category.title }) {
                     MovieCategoryRow(
                         title = category.title,
                         movies = category.movies,

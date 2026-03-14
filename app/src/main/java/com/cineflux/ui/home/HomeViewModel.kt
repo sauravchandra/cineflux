@@ -87,11 +87,33 @@ class HomeViewModel @Inject constructor(
 
     private var allLbCategories: List<Pair<String, String>> = emptyList()
     private var loadedLbCount = 0
+    private var listPagesLoaded = 1
     @Volatile private var loadingMoreCategories = false
 
     fun loadMoreCategories(count: Int = 5) {
         if (loadingMoreCategories) return
         if (loadedLbCount >= allLbCategories.size) {
+            if (listPagesLoaded < 3) {
+                loadingMoreCategories = true
+                viewModelScope.launch {
+                    listPagesLoaded++
+                    val moreLists = try {
+                        letterboxdScraper.getPopularLists(pages = listPagesLoaded)
+                    } catch (_: Exception) { emptyList() }
+                    val existingPaths = allLbCategories.map { it.second }.toSet()
+                    val newLists = moreLists
+                        .filter { it.second !in existingPaths }
+                        .map { (name, path) -> name to path }
+                    if (newLists.isNotEmpty()) {
+                        allLbCategories = allLbCategories + newLists
+                    } else {
+                        _uiState.value = _uiState.value.copy(allCategoriesLoaded = true)
+                    }
+                    loadingMoreCategories = false
+                    if (newLists.isNotEmpty()) loadMoreCategories(count)
+                }
+                return
+            }
             _uiState.value = _uiState.value.copy(allCategoriesLoaded = true)
             return
         }

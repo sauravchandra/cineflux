@@ -58,14 +58,29 @@ class PlayerViewModel @Inject constructor(
                 return@launch
             }
 
-            _playerState.value = PlayerState(
-                title = download.title,
-                filePath = filePath,
-                subtitleStatus = "Searching subtitles..."
-            )
-
-            fetchSubtitle(download.title, filePath)
+            val existingSrt = findExistingSrt(filePath)
+            if (existingSrt != null) {
+                _playerState.value = PlayerState(
+                    title = download.title,
+                    filePath = filePath,
+                    subtitlePath = existingSrt,
+                    subtitleStatus = "Subtitles loaded"
+                )
+            } else {
+                _playerState.value = PlayerState(
+                    title = download.title,
+                    filePath = filePath,
+                    subtitleStatus = "Searching subtitles..."
+                )
+                fetchSubtitle(download.title, filePath)
+            }
         }
+    }
+
+    private suspend fun findExistingSrt(videoPath: String): String? = withContext(Dispatchers.IO) {
+        val video = java.io.File(videoPath)
+        val srt = java.io.File(video.parent, video.nameWithoutExtension + ".srt")
+        if (srt.exists()) srt.absolutePath else null
     }
 
     private suspend fun findVideoFile(): String? = withContext(Dispatchers.IO) {

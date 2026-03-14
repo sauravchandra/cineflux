@@ -30,57 +30,24 @@ class LetterboxdScraper @Inject constructor(
         "Most Loved Films" to "/films/ajax/by/member/page/1/",
         "Popular All Time" to "/films/ajax/popular/page/1/",
 
-        // Decades
-        "Best of the 2020s" to "/films/ajax/popular/decade/2020s/page/1/",
-        "Best of the 2010s" to "/films/ajax/popular/decade/2010s/page/1/",
-        "Best of the 2000s" to "/films/ajax/popular/decade/2000s/page/1/",
-        "Best of the 90s" to "/films/ajax/popular/decade/1990s/page/1/",
-        "Best of the 80s" to "/films/ajax/popular/decade/1980s/page/1/",
-
-        // Top rated by decade
-        "Top Rated 2020s" to "/films/ajax/by/rating/decade/2020s/page/1/",
-        "Top Rated 2010s" to "/films/ajax/by/rating/decade/2010s/page/1/",
-        "Top Rated 2000s" to "/films/ajax/by/rating/decade/2000s/page/1/",
-        "Top Rated 90s" to "/films/ajax/by/rating/decade/1990s/page/1/",
-
-        // Popular by genre
-        "Popular Sci-Fi" to "/films/ajax/popular/genre/science-fiction/page/1/",
-        "Popular Thriller" to "/films/ajax/popular/genre/thriller/page/1/",
-        "Popular Horror" to "/films/ajax/popular/genre/horror/page/1/",
-        "Popular Romance" to "/films/ajax/popular/genre/romance/page/1/",
-        "Popular Comedy" to "/films/ajax/popular/genre/comedy/page/1/",
-        "Popular Drama" to "/films/ajax/popular/genre/drama/page/1/",
-        "Popular Mystery" to "/films/ajax/popular/genre/mystery/page/1/",
-        "Popular Crime" to "/films/ajax/popular/genre/crime/page/1/",
-        "Popular Animation" to "/films/ajax/popular/genre/animation/page/1/",
-        "Popular War" to "/films/ajax/popular/genre/war/page/1/",
-        "Popular Music" to "/films/ajax/popular/genre/music/page/1/",
-        "Popular Documentary" to "/films/ajax/popular/genre/documentary/page/1/",
-
         // Top rated by genre
-        "Top Rated Drama" to "/films/ajax/by/rating/genre/drama/page/1/",
-        "Top Rated Comedy" to "/films/ajax/by/rating/genre/comedy/page/1/",
-        "Top Rated Animation" to "/films/ajax/by/rating/genre/animation/page/1/",
-        "Top Rated Romance" to "/films/ajax/by/rating/genre/romance/page/1/",
-        "Top Rated Thriller" to "/films/ajax/by/rating/genre/thriller/page/1/",
-        "Top Rated Crime" to "/films/ajax/by/rating/genre/crime/page/1/",
-        "Top Rated Sci-Fi" to "/films/ajax/by/rating/genre/science-fiction/page/1/",
-        "Top Rated Horror" to "/films/ajax/by/rating/genre/horror/page/1/",
-        "Top Rated War" to "/films/ajax/by/rating/genre/war/page/1/",
-        "Top Rated Documentary" to "/films/ajax/by/rating/genre/documentary/page/1/",
-        "Top Rated Mystery" to "/films/ajax/by/rating/genre/mystery/page/1/",
-        "Top Rated Music" to "/films/ajax/by/rating/genre/music/page/1/",
+        "Top Drama" to "/films/ajax/by/rating/genre/drama/page/1/",
+        "Top Comedy" to "/films/ajax/by/rating/genre/comedy/page/1/",
+        "Top Animation" to "/films/ajax/by/rating/genre/animation/page/1/",
+        "Top Romance" to "/films/ajax/by/rating/genre/romance/page/1/",
+        "Top Thriller" to "/films/ajax/by/rating/genre/thriller/page/1/",
+        "Top Crime" to "/films/ajax/by/rating/genre/crime/page/1/",
+        "Top Sci-Fi" to "/films/ajax/by/rating/genre/science-fiction/page/1/",
+        "Top Horror" to "/films/ajax/by/rating/genre/horror/page/1/",
+        "Top War" to "/films/ajax/by/rating/genre/war/page/1/",
+        "Top Documentary" to "/films/ajax/by/rating/genre/documentary/page/1/",
+        "Top Mystery" to "/films/ajax/by/rating/genre/mystery/page/1/",
+        "Top Music" to "/films/ajax/by/rating/genre/music/page/1/",
 
-        // Countries
-        "Popular Korean" to "/films/ajax/popular/country/south-korea/page/1/",
-        "Popular Japanese" to "/films/ajax/popular/country/japan/page/1/",
-        "Popular Italian" to "/films/ajax/popular/country/italy/page/1/",
-        "Popular Spanish" to "/films/ajax/popular/country/spain/page/1/",
-        "Popular German" to "/films/ajax/popular/country/germany/page/1/",
-        "Popular Chinese" to "/films/ajax/popular/country/china/page/1/",
-        "Popular Iranian" to "/films/ajax/popular/country/iran/page/1/",
-        "Popular French" to "/films/ajax/popular/country/france/page/1/",
-        "Popular Indian" to "/films/ajax/popular/country/india/page/1/",
+        // Official Letterboxd lists
+        "Letterboxd Top 500" to "/official/list/letterboxds-top-500-films/page/1/",
+        "Most Fans Top 250" to "/official/list/top-250-films-with-the-most-fans/page/1/",
+        "Top 250 Animated" to "/official/list/top-250-animated-films/page/1/",
     )
 
     fun getAvailableCategories(): List<Pair<String, String>> = allEndpoints
@@ -94,33 +61,43 @@ class LetterboxdScraper @Inject constructor(
         scrapeAjax("$BASE_URL/films/ajax/popular/this/week/page/1/")
     }
 
-    suspend fun getPopularLists(): List<Pair<String, String>> = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("$BASE_URL/lists/popular/this/week/")
-                .header("User-Agent", UA)
-                .build()
-            val body = client.newCall(request).execute().body?.string() ?: return@withContext emptyList()
+    suspend fun getPopularLists(pages: Int = 1): List<Pair<String, String>> = withContext(Dispatchers.IO) {
+        val hrefRegex = Regex("""href="(/([^/]+)/list/([^/"]+)/)"[^>]*>([^<]+)""")
+        val allResults = mutableListOf<Pair<String, String>>()
 
-            val hrefRegex = Regex("""href="(/([^/]+)/list/([^/"]+)/)"[^>]*>([^<]+)""")
-            val results = hrefRegex.findAll(body).map { m ->
-                val name = m.groupValues[4].trim().let {
-                    if (it.length > 50) it.take(47) + "..." else it
+        for (page in 1..pages) {
+            val suffix = if (page == 1) "" else "page/$page/"
+            val urls = listOf(
+                "$BASE_URL/lists/popular/this/week/$suffix",
+                "$BASE_URL/lists/featured/$suffix"
+            )
+            for (url in urls) {
+                try {
+                    val request = Request.Builder().url(url).header("User-Agent", UA).build()
+                    val body = client.newCall(request).execute().body?.string() ?: continue
+                val results = hrefRegex.findAll(body).mapNotNull { m ->
+                    val name = m.groupValues[4].trim().let {
+                        if (it.length > 50) it.take(47) + "..." else it
+                    }
+                    if (name.isBlank()) return@mapNotNull null
+                    val path = "${m.groupValues[1]}page/1/"
+                    name to path
+                }.toList()
+                    allResults.addAll(results)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Lists fetch failed for $url: ${e.message}")
                 }
-                val path = "${m.groupValues[1]}page/1/"
-                name to path
-            }.toList().distinctBy { it.second }.take(20)
-
-            Log.i(TAG, "Found ${results.size} popular lists")
-            results
-        } catch (e: Exception) {
-            Log.w(TAG, "Lists fetch failed: ${e.message}")
-            emptyList()
+            }
         }
+
+        val deduplicated = allResults.distinctBy { it.second }
+        Log.i(TAG, "Found ${deduplicated.size} popular lists (from ${allResults.size} total, $pages pages)")
+        deduplicated
     }
 
     suspend fun scrapeList(path: String, page: Int = 1): List<LetterboxdFilm> = withContext(Dispatchers.IO) {
-        val pagedPath = path.replace("/page/1/", "/page/$page/")
+        val sortedPath = if (!path.contains("/by/")) path.replace("/page/", "/by/rating/page/") else path
+        val pagedPath = sortedPath.replace("/page/1/", "/page/$page/")
         scrapeAjax("$BASE_URL$pagedPath")
     }
 
