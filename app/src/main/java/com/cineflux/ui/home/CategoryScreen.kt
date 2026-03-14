@@ -45,18 +45,11 @@ fun CategoryScreen(
     onLoadMore: () -> Unit = {}
 ) {
     val gridState = rememberLazyGridState()
+    val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+    val shouldLoadMore = lastVisible >= movies.size - 4 && movies.isNotEmpty()
 
-    val shouldLoadMore = remember {
-        derivedStateOf {
-            val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            lastVisible >= movies.size - 4
-        }
-    }
-
-    LaunchedEffect(shouldLoadMore.value) {
-        if (shouldLoadMore.value && movies.isNotEmpty()) {
-            onLoadMore()
-        }
+    LaunchedEffect(shouldLoadMore, movies.size) {
+        if (shouldLoadMore) onLoadMore()
     }
 
     Column(

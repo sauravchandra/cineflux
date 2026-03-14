@@ -146,6 +146,7 @@ class HomeViewModel @Inject constructor(
     fun loadMoreForCategory(index: Int) {
         val current = _uiState.value
         val category = current.categories.getOrNull(index) ?: return
+        android.util.Log.i("HomeVM", "loadMore index=$index title=${category.title} path=${category.path.take(30)} loading=${category.loadingMore} page=${category.page}")
         if (category.path.isBlank() || category.loadingMore) return
 
         val nextPage = category.page + 1

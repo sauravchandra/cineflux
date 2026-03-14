@@ -19,9 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -54,6 +51,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.onKeyEvent
 import coil3.compose.AsyncImage
@@ -68,9 +66,6 @@ import com.cineflux.ui.theme.CineFluxRed
 @Composable
 fun HomeScreen(
     onMovieClick: (Int) -> Unit,
-    onSearchClick: () -> Unit,
-    onDownloadsClick: () -> Unit,
-    onSettingsClick: () -> Unit,
     onCategoryClick: (Int) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
@@ -94,12 +89,18 @@ fun HomeScreen(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 40.dp)
     ) {
-        item { TopBar(onSearchClick, onDownloadsClick, onSettingsClick) }
-
         if (state.isLoading) {
             item { ShimmerHero() }
             items(4) { ShimmerMovieRow() }
         } else {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .focusable()
+                )
+            }
             item {
                 val heroMovies = state.categories.firstOrNull()?.movies?.take(5) ?: emptyList()
                 if (heroMovies.isNotEmpty()) {
@@ -128,16 +129,11 @@ fun HomeScreen(
 }
 
 @Composable
-private fun TopBar(
-    onSearchClick: () -> Unit,
-    onDownloadsClick: () -> Unit,
-    onSettingsClick: () -> Unit
-) {
+private fun TopBar() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 48.dp, vertical = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -145,17 +141,6 @@ private fun TopBar(
             style = MaterialTheme.typography.headlineLarge,
             color = CineFluxRed
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ActionIconButton(onClick = onSearchClick) {
-                Icon(Icons.Default.Search, contentDescription = "Search")
-            }
-            ActionIconButton(onClick = onDownloadsClick) {
-                Icon(Icons.Default.Download, contentDescription = "Downloads")
-            }
-            ActionIconButton(onClick = onSettingsClick) {
-                Icon(Icons.Default.Settings, contentDescription = "Settings")
-            }
-        }
     }
 }
 
@@ -292,14 +277,10 @@ private fun MovieCategoryRow(
             )
         }
         val rowState = rememberLazyListState()
-        val shouldLoadMore = remember {
-            derivedStateOf {
-                val lastVisible = rowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                lastVisible >= movies.size - 3 && movies.isNotEmpty()
-            }
-        }
-        LaunchedEffect(shouldLoadMore.value) {
-            if (shouldLoadMore.value) onLoadMore()
+        val lastVisible = rowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+        val shouldLoadMore = lastVisible >= movies.size - 3 && movies.isNotEmpty()
+        LaunchedEffect(shouldLoadMore, movies.size) {
+            if (shouldLoadMore) onLoadMore()
         }
 
         LazyRow(
