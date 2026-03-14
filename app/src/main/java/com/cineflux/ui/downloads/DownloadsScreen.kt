@@ -1,5 +1,11 @@
 package com.cineflux.ui.downloads
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -145,6 +151,26 @@ private fun DownloadRow(
 
             if (!item.isCompleted) {
                 val progress = item.displayProgress.coerceIn(0f, 1f).let { if (it.isNaN()) 0f else it }
+                val resuming = item.isResuming
+
+                val pulseAlpha = if (resuming) {
+                    val transition = rememberInfiniteTransition(label = "resume")
+                    transition.animateFloat(
+                        initialValue = 0.4f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(800, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "pulse"
+                    ).value
+                } else 1f
+
+                val barColor = if (resuming)
+                    androidx.compose.ui.graphics.Color(0xFFFF9800).copy(alpha = pulseAlpha)
+                else
+                    androidx.compose.ui.graphics.Color(0xFFE21A22)
+
                 Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -159,7 +185,7 @@ private fun DownloadRow(
                     )
                     if (progress > 0f) {
                         drawRoundRect(
-                            color = androidx.compose.ui.graphics.Color(0xFFE21A22),
+                            color = barColor,
                             size = size.copy(width = size.width * progress),
                             cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius)
                         )
@@ -169,7 +195,7 @@ private fun DownloadRow(
                 Text(
                     text = "${(progress * 100).toInt()}% · ${item.speedText}",
                     style = MaterialTheme.typography.labelMedium,
-                    color = CineFluxGold
+                    color = if (resuming) androidx.compose.ui.graphics.Color(0xFFFF9800) else CineFluxGold
                 )
             } else {
                 Text(

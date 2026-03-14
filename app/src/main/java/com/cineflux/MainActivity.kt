@@ -20,7 +20,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestStorageAccess()
         ContextCompat.startForegroundService(this, Intent(this, DownloadService::class.java))
         setContent {
             CineFluxTheme {

@@ -133,8 +133,10 @@ class MovieRepository @Inject constructor(
                 val query = "${detail.title} $year"
                 val results = pirateBayApi.search(query)
                     .filter { it.seedCount > 0 && it.info_hash.length == 40 }
+                    .filter { matchesTorrent(it.name, detail.title, year) }
                     .sortedByDescending { it.seedCount }
                     .take(6)
+                Log.i("MovieRepo", "TPB: ${results.size} matched out of search results")
                 results.map { it.toDomain() }
             } catch (e: Exception) {
                 Log.w("MovieRepo", "TPB failed: ${e.message}")
@@ -148,11 +150,11 @@ class MovieRepository @Inject constructor(
                 val ytsResponse = ytsApi.searchMovies(detail.title)
                 val ytsMovie = ytsResponse.data.movies
                     ?.firstOrNull {
-                        it.title.equals(detail.title, ignoreCase = true) ||
+                        (it.title.equals(detail.title, ignoreCase = true) ||
                         it.title.contains(detail.title, ignoreCase = true) ||
-                        detail.title.contains(it.title, ignoreCase = true)
+                        detail.title.contains(it.title, ignoreCase = true)) &&
+                        (year.isEmpty() || it.year.toString() == year)
                     }
-                    ?: ytsResponse.data.movies?.firstOrNull()
                 ytsMovie?.torrents?.map { it.toDomain() } ?: emptyList()
             } catch (e: Exception) {
                 Log.w("MovieRepo", "YTS failed: ${e.message}")
@@ -161,6 +163,24 @@ class MovieRepository @Inject constructor(
         }
 
         detail.toDomain(dedup(torrents))
+    }
+
+    private fun matchesTorrent(torrentName: String, movieTitle: String, year: String): Boolean {
+        val normalized = torrentName.lowercase().replace(".", " ").replace("-", " ").replace("_", " ")
+        val titleLower = movieTitle.lowercase()
+        val hasYear = year.isNotEmpty() && normalized.contains(year)
+        val titlePattern = Regex("\\b${Regex.escape(titleLower)}\\b")
+        val titleMatch = if (titlePattern.containsMatchIn(normalized)) {
+            if (titleLower.length <= 4) normalized.startsWith("$titleLower ")
+            else true
+        } else {
+            val titleWords = titleLower.split(" ").filter { it.length > 2 }
+            titleWords.isNotEmpty() && titleWords.all { normalized.contains(it) }
+        }
+        if (!titleMatch) return false
+        if (hasYear) return true
+        val adjacentYear = Regex("\\b(19|20)\\d{2}\\b").find(normalized)?.value
+        return adjacentYear == null || adjacentYear == year
     }
 
     private fun dedup(torrents: List<TorrentInfo>): List<TorrentInfo> {

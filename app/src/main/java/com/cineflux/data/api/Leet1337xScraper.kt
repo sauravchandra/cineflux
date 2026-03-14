@@ -46,13 +46,10 @@ class Leet1337xScraper @Inject constructor(
                 )
             }
 
-            val titleWords = movieTitle.lowercase().split(" ").filter { it.length > 1 }
             val filtered = searchResults
                 .filter { r ->
-                    val nameLower = r.name.lowercase().replace(".", " ").replace("-", " ")
-                    val matchCount = titleWords.count { nameLower.contains(it) }
                     val hasQuality = qualityRegex.containsMatchIn(r.name)
-                    matchCount >= (titleWords.size / 2).coerceAtLeast(1) && hasQuality
+                    hasQuality && matchesTorrent(r.name, movieTitle, year)
                 }
                 .sortedByDescending { it.seeds }
                 .take(6)
@@ -89,6 +86,24 @@ class Leet1337xScraper @Inject constructor(
             Log.w(TAG, "Search failed: ${e.message}")
             emptyList()
         }
+    }
+
+    private fun matchesTorrent(torrentName: String, movieTitle: String, year: String): Boolean {
+        val normalized = torrentName.lowercase().replace(".", " ").replace("-", " ").replace("_", " ")
+        val titleLower = movieTitle.lowercase()
+        val hasYear = year.isNotEmpty() && normalized.contains(year)
+        val titlePattern = Regex("\\b${Regex.escape(titleLower)}\\b")
+        val titleMatch = if (titlePattern.containsMatchIn(normalized)) {
+            if (titleLower.length <= 4) normalized.startsWith("$titleLower ")
+            else true
+        } else {
+            val titleWords = titleLower.split(" ").filter { it.length > 2 }
+            titleWords.isNotEmpty() && titleWords.all { normalized.contains(it) }
+        }
+        if (!titleMatch) return false
+        if (hasYear) return true
+        val adjacentYear = Regex("\\b(19|20)\\d{2}\\b").find(normalized)?.value
+        return adjacentYear == null || adjacentYear == year
     }
 
     private fun fetch(url: String): String? {

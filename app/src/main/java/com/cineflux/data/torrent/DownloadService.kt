@@ -48,7 +48,7 @@ class DownloadService : Service() {
                 android.util.Log.i("DownloadService", "Resume check: ${active.size} active download(s) (all statuses: ${active.map { "${it.title}:${it.status}" }})")
                 active.forEach { download ->
                     if (download.filePath == null && download.totalBytes > 0) {
-                        val videoPath = findVideoFile(torrentEngine.defaultSavePath)
+                        val videoPath = torrentEngine.getFilePath(download.infoHash)
                         if (videoPath != null) {
                             val file = java.io.File(videoPath)
                             if (file.length() >= download.totalBytes * 0.95) {
@@ -59,8 +59,8 @@ class DownloadService : Service() {
                         }
                     }
                     if (download.magnetUrl.isNotBlank()) {
-                        android.util.Log.i("DownloadService", "Resuming: ${download.title} hash=${download.infoHash.take(16)}")
-                        torrentEngine.addDownload(download.magnetUrl)
+                        android.util.Log.i("DownloadService", "Resuming (skip check): ${download.title} hash=${download.infoHash.take(16)}")
+                        torrentEngine.addDownload(download.magnetUrl, skipCheck = true)
                     } else {
                         android.util.Log.w("DownloadService", "Skip resume - no magnet: ${download.title}")
                     }
@@ -98,21 +98,29 @@ class DownloadService : Service() {
             }
             ACTION_REMOVE -> {
                 val hash = intent.getStringExtra(EXTRA_INFO_HASH) ?: return START_STICKY
+                val filePath = torrentEngine.getFilePath(hash)
                 torrentEngine.removeDownload(hash, deleteFiles = true)
                 serviceScope.launch {
                     val dl = downloadDao.getByInfoHash(hash)
                     if (dl != null) {
-                        dl.filePath?.let { path ->
-                            val video = java.io.File(path)
+                        val pathToClean = filePath ?: dl.filePath
+                        if (pathToClean != null) {
+                            val video = java.io.File(pathToClean)
                             if (video.exists()) {
                                 video.delete()
-                                android.util.Log.i("DownloadService", "Deleted: $path")
+                                android.util.Log.i("DownloadService", "Deleted video: $pathToClean")
                             }
-                            val srt = java.io.File(video.parent, video.nameWithoutExtension + ".srt")
+                            val parent = video.parentFile
+                            if (parent != null && parent.absolutePath != torrentEngine.defaultSavePath) {
+                                parent.deleteRecursively()
+                                android.util.Log.i("DownloadService", "Deleted torrent dir: ${parent.absolutePath}")
+                            }
+                            val srt = java.io.File(video.parent ?: torrentEngine.defaultSavePath, video.nameWithoutExtension + ".srt")
                             if (srt.exists()) srt.delete()
                         }
                         downloadDao.delete(dl.id)
                     }
+                    cleanOrphanedResumeData(hash)
                 }
             }
         }
@@ -124,10 +132,7 @@ class DownloadService : Service() {
             torrentEngine.finishedTorrents.collectLatest { hashes ->
                 hashes.forEach { hash ->
                     try {
-                        var filePath = torrentEngine.getFilePath(hash)
-                        if (filePath == null) {
-                            filePath = findVideoFile(torrentEngine.defaultSavePath)
-                        }
+                        val filePath = torrentEngine.getFilePath(hash)
                         if (filePath != null) {
                             android.util.Log.i("DownloadService", "Marking completed: $hash -> $filePath")
                             downloadDao.markCompleted(hash, filePath)
@@ -161,13 +166,17 @@ class DownloadService : Service() {
                             else -> DownloadEntity.STATUS_DOWNLOADING
                         }
 
+                        val isVerifying = progress.state == TorrentState.CHECKING ||
+                                progress.state == TorrentState.DOWNLOADING_METADATA
                         val existing = downloadDao.getByInfoHash(hash)
                         if (existing != null) {
                             if (status == DownloadEntity.STATUS_COMPLETED && existing.filePath == null) {
-                                val path = torrentEngine.getFilePath(hash) ?: findVideoFile(torrentEngine.defaultSavePath)
+                                val path = torrentEngine.getFilePath(hash)
                                 if (path != null) downloadDao.markCompleted(hash, path)
                             }
-                            downloadDao.updateProgress(hash, progress.downloadedBytes, progress.totalBytes, status)
+                            if (!isVerifying) {
+                                downloadDao.updateProgress(hash, progress.downloadedBytes, progress.totalBytes, status)
+                            }
                         } else {
                             downloadDao.insert(DownloadEntity(
                                 tmdbId = 0,
@@ -186,10 +195,10 @@ class DownloadService : Service() {
                     val allDownloads = downloadDao.getActiveDownloads()
                     allDownloads.forEach { dl ->
                         if (dl.filePath == null) {
-                            val path = findVideoFile(torrentEngine.defaultSavePath)
+                            val path = torrentEngine.getFilePath(dl.infoHash)
                             if (path != null) {
                                 val fileSize = java.io.File(path).length()
-                                if (dl.totalBytes > 0 && fileSize >= dl.totalBytes * 0.95 || fileSize > 500_000_000) {
+                                if (dl.totalBytes > 0 && fileSize >= dl.totalBytes * 0.95) {
                                     android.util.Log.i("DownloadService", "Sync: complete on disk: ${dl.title} (${fileSize / 1_000_000}MB)")
                                     downloadDao.markCompleted(dl.infoHash, path)
                                 }
@@ -224,6 +233,19 @@ class DownloadService : Service() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
+    }
+
+    private fun cleanOrphanedResumeData(hash: String) {
+        try {
+            val saveDir = java.io.File(torrentEngine.defaultSavePath)
+            saveDir.listFiles()?.forEach { f ->
+                if (f.name.contains(hash, ignoreCase = true) ||
+                    f.name.endsWith(".resume") || f.name.endsWith(".parts")) {
+                    f.delete()
+                    android.util.Log.i("DownloadService", "Cleaned orphan: ${f.name}")
+                }
+            }
+        } catch (_: Exception) { }
     }
 
     private fun updateNotification(text: String) {

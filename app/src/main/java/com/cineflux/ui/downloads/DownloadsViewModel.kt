@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.cineflux.data.db.DownloadEntity
 import com.cineflux.data.torrent.DownloadProgress
 import com.cineflux.data.torrent.TorrentRepository
+import com.cineflux.data.torrent.TorrentState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,10 +19,20 @@ data class DownloadItem(
     val liveProgress: DownloadProgress?,
     val localPaused: Boolean = false
 ) {
+    val isResuming: Boolean
+        get() = liveProgress?.state == TorrentState.CHECKING ||
+                liveProgress?.state == TorrentState.DOWNLOADING_METADATA
+
     val displayProgress: Float
-        get() = liveProgress?.progress ?: run {
-            if (entity.totalBytes > 0) entity.downloadedBytes.toFloat() / entity.totalBytes
-            else 0f
+        get() {
+            if (isResuming) {
+                return if (entity.totalBytes > 0) entity.downloadedBytes.toFloat() / entity.totalBytes
+                else 0f
+            }
+            return liveProgress?.progress ?: run {
+                if (entity.totalBytes > 0) entity.downloadedBytes.toFloat() / entity.totalBytes
+                else 0f
+            }
         }
 
     val isCompleted: Boolean
@@ -33,6 +44,7 @@ data class DownloadItem(
     val speedText: String
         get() {
             if (localPaused) return "Paused"
+            if (isResuming) return "Resuming…"
             val rate = liveProgress?.downloadRate ?: return ""
             return when {
                 rate > 1_048_576 -> String.format("%.1f MB/s", rate / 1_048_576.0)

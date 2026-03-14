@@ -35,6 +35,10 @@ class TorrentEngine @Inject constructor(
     private val _finishedTorrents = MutableStateFlow<List<String>>(emptyList())
     val finishedTorrents: StateFlow<List<String>> = _finishedTorrents.asStateFlow()
 
+    private val resumeDir: File by lazy {
+        File(context.filesDir, "resume").also { if (!it.exists()) it.mkdirs() }
+    }
+
     @Volatile
     private var isStarted = false
 
@@ -165,22 +169,34 @@ class TorrentEngine @Inject constructor(
             sm.start(org.libtorrent4j.SessionParams(sp))
             sm.addListener(object : org.libtorrent4j.AlertListener {
                 override fun types(): IntArray = intArrayOf(
-                    org.libtorrent4j.alerts.AlertType.TORRENT_FINISHED.swig()
+                    org.libtorrent4j.alerts.AlertType.TORRENT_FINISHED.swig(),
+                    org.libtorrent4j.alerts.AlertType.SAVE_RESUME_DATA.swig()
                 )
                 override fun alert(alert: org.libtorrent4j.alerts.Alert<*>) {
                     try {
-                        if (alert.type() == org.libtorrent4j.alerts.AlertType.TORRENT_FINISHED) {
-                            val msg = alert.message()
-                            Log.i(TAG, "FINISHED alert: $msg")
-                            val hashMatch = Regex("[0-9a-f]{40}").find(msg.lowercase())
-                            if (hashMatch != null) {
-                                val hash = hashMatch.value
-                                _finishedTorrents.value = _finishedTorrents.value + hash
-                            } else {
-                                handles.keys.forEach { hash ->
-                                    _finishedTorrents.value = _finishedTorrents.value + hash
+                        when (alert.type()) {
+                            org.libtorrent4j.alerts.AlertType.TORRENT_FINISHED -> {
+                                val msg = alert.message()
+                                Log.i(TAG, "FINISHED alert: $msg")
+                                val hashMatch = Regex("[0-9a-f]{40}").find(msg.lowercase())
+                                if (hashMatch != null) {
+                                    _finishedTorrents.value = _finishedTorrents.value + hashMatch.value
+                                } else {
+                                    handles.keys.forEach { hash ->
+                                        _finishedTorrents.value = _finishedTorrents.value + hash
+                                    }
                                 }
                             }
+                            org.libtorrent4j.alerts.AlertType.SAVE_RESUME_DATA -> {
+                                val srd = alert as org.libtorrent4j.alerts.SaveResumeDataAlert
+                                val params = srd.params().swig()
+                                val data = org.libtorrent4j.swig.libtorrent.write_resume_data_buf_ex(params)
+                                val bytes = org.libtorrent4j.Vectors.byte_vector2bytes(data)
+                                val hash = Regex("[0-9a-f]{40}").find(alert.message().lowercase())?.value ?: return
+                                File(resumeDir, "$hash.resume").writeBytes(bytes)
+                                Log.i(TAG, "Resume data saved for $hash (${bytes.size} bytes)")
+                            }
+                            else -> {}
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Alert error", e)
@@ -202,6 +218,7 @@ class TorrentEngine @Inject constructor(
     fun stop() {
         if (!isStarted) return
         isStarted = false
+        saveAllResumeData()
         scope?.cancel()
         scope = null
         handles.clear()
@@ -212,9 +229,21 @@ class TorrentEngine @Inject constructor(
         sessionManager = null
     }
 
-    fun addDownload(magnetUrl: String, savePath: String = defaultSavePath): String {
+    private fun saveAllResumeData() {
+        handles.forEach { (hash, handleObj) ->
+            try {
+                val handle = handleObj as? org.libtorrent4j.TorrentHandle ?: return@forEach
+                if (handle.isValid()) {
+                    handle.saveResumeData()
+                    Log.i(TAG, "Requested resume data for $hash")
+                }
+            } catch (_: Exception) { }
+        }
+    }
+
+    fun addDownload(magnetUrl: String, savePath: String = defaultSavePath, skipCheck: Boolean = false): String {
         val infoHash = extractInfoHash(magnetUrl)
-        Log.i(TAG, "addDownload: hash=$infoHash")
+        Log.i(TAG, "addDownload: hash=$infoHash skipCheck=$skipCheck")
 
         if (!nativeAvailable) start()
         if (!nativeAvailable) {
@@ -240,9 +269,26 @@ class TorrentEngine @Inject constructor(
                     return@launch
                 }
 
-                Log.i(TAG, "Resolving metadata...")
-                sm.download(magnetUrl, saveDir, org.libtorrent4j.swig.torrent_flags_t())
-                Log.i(TAG, "Metadata resolved for $infoHash")
+                val resumeFile = File(resumeDir, "$infoHash.resume")
+                if (skipCheck && resumeFile.exists()) {
+                    Log.i(TAG, "Loading resume data for $infoHash")
+                    val bytes = resumeFile.readBytes()
+                    val vec = org.libtorrent4j.Vectors.bytes2byte_vector(bytes)
+                    val ec = org.libtorrent4j.swig.error_code()
+                    val params = org.libtorrent4j.swig.libtorrent.read_resume_data_ex(vec, ec)
+                    if (ec.value() == 0) {
+                        params.setSave_path(saveDir.absolutePath)
+                        sm.swig().async_add_torrent(params)
+                        delay(2000)
+                    } else {
+                        Log.w(TAG, "Resume data invalid: ${ec.message()}, falling back to fresh")
+                        sm.download(magnetUrl, saveDir, org.libtorrent4j.swig.torrent_flags_t())
+                    }
+                } else {
+                    Log.i(TAG, "Resolving metadata (fresh)...")
+                    sm.download(magnetUrl, saveDir, org.libtorrent4j.swig.torrent_flags_t())
+                }
+                Log.i(TAG, "Torrent added for $infoHash")
 
                 val handle = sm.find(org.libtorrent4j.Sha1Hash.parseHex(infoHash))
                 if (handle != null) {
@@ -263,27 +309,32 @@ class TorrentEngine @Inject constructor(
 
     private fun watchChecking(infoHash: String, handle: org.libtorrent4j.TorrentHandle) {
         scope?.launch {
+            val stuckStates = setOf(
+                org.libtorrent4j.TorrentStatus.State.CHECKING_FILES,
+                org.libtorrent4j.TorrentStatus.State.CHECKING_RESUME_DATA,
+                org.libtorrent4j.TorrentStatus.State.DOWNLOADING_METADATA
+            )
+            val maxWait = 60_000
             var elapsed = 0
-            while (elapsed < 30_000 && isStarted) {
-                delay(2000)
-                elapsed += 2000
+            while (elapsed < maxWait && isStarted) {
+                delay(3000)
+                elapsed += 3000
                 try {
                     val state = handle.status().state()
-                    if (state != org.libtorrent4j.TorrentStatus.State.CHECKING_FILES &&
-                        state != org.libtorrent4j.TorrentStatus.State.CHECKING_RESUME_DATA) {
+                    if (state !in stuckStates) {
+                        Log.i(TAG, "watchChecking: $infoHash reached [$state] after ${elapsed / 1000}s")
+                        if (handle.torrentFile() != null) tuneHandle(handle)
                         return@launch
                     }
                 } catch (_: Exception) { return@launch }
             }
             try {
                 val state = handle.status().state()
-                if (state == org.libtorrent4j.TorrentStatus.State.CHECKING_FILES ||
-                    state == org.libtorrent4j.TorrentStatus.State.CHECKING_RESUME_DATA) {
-                    Log.w(TAG, "Checking stuck for $infoHash, forcing reannounce + resume")
-                    handle.unsetFlags(org.libtorrent4j.TorrentFlags.AUTO_MANAGED)
-                    handle.resume()
-                    handle.forceReannounce()
-                }
+                Log.w(TAG, "Stuck in [$state] for ${maxWait / 1000}s: $infoHash, forcing resume")
+                handle.unsetFlags(org.libtorrent4j.TorrentFlags.AUTO_MANAGED)
+                handle.resume()
+                handle.forceReannounce()
+                if (handle.torrentFile() != null) tuneHandle(handle)
             } catch (e: Exception) {
                 Log.e(TAG, "watchChecking error: ${e.message}")
             }
@@ -292,19 +343,10 @@ class TorrentEngine @Inject constructor(
 
     private fun tuneHandle(handle: org.libtorrent4j.TorrentHandle) {
         try {
-            handle.setFlags(org.libtorrent4j.TorrentFlags.SEQUENTIAL_DOWNLOAD)
+            handle.unsetFlags(org.libtorrent4j.TorrentFlags.SEQUENTIAL_DOWNLOAD)
             handle.setFlags(org.libtorrent4j.TorrentFlags.AUTO_MANAGED)
 
-            val numPieces = handle.torrentFile()?.numPieces() ?: return
-            val boostPieces = minOf(numPieces, 20)
-            for (i in 0 until boostPieces) {
-                handle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY)
-            }
-            for (i in maxOf(0, numPieces - 5) until numPieces) {
-                handle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY)
-            }
-
-            Log.i(TAG, "Handle tuned: sequential=true, pieces=$numPieces, boosted first 20 + last 5")
+            Log.i(TAG, "Handle tuned: sequential=false, pieces=${handle.torrentFile()?.numPieces() ?: "?"}")
         } catch (e: Exception) {
             Log.w(TAG, "Tune failed: ${e.message}")
         }
@@ -400,6 +442,7 @@ class TorrentEngine @Inject constructor(
                         handles.remove(hash)
                         return@mapNotNull null
                     }
+                    val mappedState = mapState(status.state())
                     val progress = DownloadProgress(
                         infoHash = hash,
                         name = status.name() ?: "Unknown",
@@ -410,16 +453,25 @@ class TorrentEngine @Inject constructor(
                         downloadedBytes = status.totalWantedDone(),
                         seeds = status.numSeeds(),
                         peers = status.numPeers(),
-                        state = mapState(status.state())
+                        state = mappedState
                     )
                     if (logCounter % 5 == 0) {
-                        Log.d(TAG, "${progress.name} ${(progress.progress * 100).toInt()}% " +
+                        Log.d(TAG, " ${(status.progress() * 100).toInt()}% " +
                             "${progress.downloadRate / 1024}KB/s S:${progress.seeds} P:${progress.peers} " +
                             "[${progress.state}]")
                     }
                     hash to progress
                 }.toMap()
                 _downloads.value = map
+
+                if (logCounter % 30 == 0 && handles.isNotEmpty()) {
+                    handles.forEach { (_, handleObj) ->
+                        try {
+                            val h = handleObj as? org.libtorrent4j.TorrentHandle
+                            if (h != null && h.isValid()) h.saveResumeData()
+                        } catch (_: Exception) { }
+                    }
+                }
             } catch (_: Exception) { }
             logCounter++
             delay(1000)
