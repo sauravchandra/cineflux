@@ -11,6 +11,7 @@ data class DownloadEntity(
     val posterUrl: String?,
     val quality: String,
     val magnetUrl: String,
+    val torrentUrl: String? = null,
     val infoHash: String,
     val filePath: String? = null,
     val totalBytes: Long = 0,

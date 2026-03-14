@@ -59,8 +59,8 @@ class DownloadService : Service() {
                         }
                     }
                     if (download.magnetUrl.isNotBlank()) {
-                        android.util.Log.i("DownloadService", "Resuming (skip check): ${download.title} hash=${download.infoHash.take(16)}")
-                        torrentEngine.addDownload(download.magnetUrl, skipCheck = true)
+                        android.util.Log.i("DownloadService", "Resuming (skip check): ${download.title} hash=${download.infoHash.take(16)} torrentUrl=${download.torrentUrl != null}")
+                        torrentEngine.addDownload(download.magnetUrl, skipCheck = true, torrentUrl = download.torrentUrl)
                     } else {
                         android.util.Log.w("DownloadService", "Skip resume - no magnet: ${download.title}")
                     }
@@ -76,7 +76,8 @@ class DownloadService : Service() {
             ACTION_ADD -> {
                 val magnetUrl = intent.getStringExtra(EXTRA_MAGNET_URL) ?: return START_STICKY
                 val savePath = intent.getStringExtra(EXTRA_SAVE_PATH) ?: torrentEngine.defaultSavePath
-                torrentEngine.addDownload(magnetUrl, savePath)
+                val torrentUrl = intent.getStringExtra(EXTRA_TORRENT_URL)
+                torrentEngine.addDownload(magnetUrl, savePath, torrentUrl = torrentUrl)
             }
             ACTION_PAUSE -> {
                 val hash = intent.getStringExtra(EXTRA_INFO_HASH) ?: return START_STICKY
@@ -273,12 +274,14 @@ class DownloadService : Service() {
         const val EXTRA_MAGNET_URL = "magnet_url"
         const val EXTRA_SAVE_PATH = "save_path"
         const val EXTRA_INFO_HASH = "info_hash"
+        const val EXTRA_TORRENT_URL = "torrent_url"
 
-        fun addDownload(context: Context, magnetUrl: String, savePath: String? = null) {
+        fun addDownload(context: Context, magnetUrl: String, savePath: String? = null, torrentUrl: String? = null) {
             val intent = Intent(context, DownloadService::class.java).apply {
                 action = ACTION_ADD
                 putExtra(EXTRA_MAGNET_URL, magnetUrl)
                 savePath?.let { putExtra(EXTRA_SAVE_PATH, it) }
+                torrentUrl?.let { putExtra(EXTRA_TORRENT_URL, it) }
             }
             ContextCompat.startForegroundService(context, intent)
         }

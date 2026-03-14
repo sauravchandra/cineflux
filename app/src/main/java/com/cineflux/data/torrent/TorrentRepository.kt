@@ -58,13 +58,14 @@ class TorrentRepository @Inject constructor(
                     posterUrl = movie.posterUrl,
                     quality = torrent.quality,
                     magnetUrl = magnetUrl,
+                    torrentUrl = torrent.torrentUrl,
                     infoHash = infoHash,
                     totalBytes = torrent.sizeBytes,
                     status = DownloadEntity.STATUS_DOWNLOADING
                 )
             )
 
-            DownloadService.addDownload(context, magnetUrl)
+            DownloadService.addDownload(context, magnetUrl, torrentUrl = torrent.torrentUrl)
         }
 
         return downloadId

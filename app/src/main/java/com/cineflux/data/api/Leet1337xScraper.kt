@@ -21,6 +21,7 @@ class Leet1337xScraper @Inject constructor(
     private val leechInRowRegex = Regex("""coll-3 leeches">(\d+)<""")
     private val sizeInRowRegex = Regex("""coll-4 size[^"]*">([^<]+)<""")
     private val magnetRegex = Regex("""href="(magnet:\?[^"]+)"""")
+    private val torrentLinkRegex = Regex("""href="(https?://[^"]+\.torrent)"""")
     private val hashRegex = Regex("""btih:([a-fA-F0-9]{40})""", RegexOption.IGNORE_CASE)
     private val qualityRegex = Regex("""(2160p|4K|1080p|720p|480p)""", RegexOption.IGNORE_CASE)
 
@@ -65,6 +66,7 @@ class Leet1337xScraper @Inject constructor(
                     val magnet = magnetRegex.find(page)?.groupValues?.get(1) ?: return@mapNotNull null
                     val hash = hashRegex.find(magnet)?.groupValues?.get(1)?.lowercase() ?: return@mapNotNull null
                     val quality = qualityRegex.find(result.name)?.groupValues?.get(1) ?: "Unknown"
+                    val torrentLink = torrentLinkRegex.find(page)?.groupValues?.get(1)
 
                     TorrentInfo(
                         hash = hash,
@@ -75,7 +77,8 @@ class Leet1337xScraper @Inject constructor(
                         size = result.size,
                         sizeBytes = parseSizeToBytes(result.size),
                         source = TorrentSource.LEET,
-                        originalMagnet = magnet
+                        originalMagnet = magnet,
+                        torrentUrl = torrentLink
                     )
                 } catch (e: Exception) {
                     Log.w(TAG, "Detail fetch failed: ${e.message}")

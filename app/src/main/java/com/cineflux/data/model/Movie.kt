@@ -26,7 +26,8 @@ data class TorrentInfo(
     val size: String,
     val sizeBytes: Long,
     val source: TorrentSource = TorrentSource.YTS,
-    val originalMagnet: String? = null
+    val originalMagnet: String? = null,
+    val torrentUrl: String? = null
 ) {
     fun magnetUrl(title: String): String {
         if (originalMagnet != null) return originalMagnet

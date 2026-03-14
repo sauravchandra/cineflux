@@ -129,23 +129,6 @@ class MovieRepository @Inject constructor(
 
         if (torrents.isEmpty()) {
             torrents = try {
-                Log.i("MovieRepo", "Trying TPB for '${detail.title}'")
-                val query = "${detail.title} $year"
-                val results = pirateBayApi.search(query)
-                    .filter { it.seedCount > 0 && it.info_hash.length == 40 }
-                    .filter { matchesTorrent(it.name, detail.title, year) }
-                    .sortedByDescending { it.seedCount }
-                    .take(6)
-                Log.i("MovieRepo", "TPB: ${results.size} matched out of search results")
-                results.map { it.toDomain() }
-            } catch (e: Exception) {
-                Log.w("MovieRepo", "TPB failed: ${e.message}")
-                emptyList()
-            }
-        }
-
-        if (torrents.isEmpty()) {
-            torrents = try {
                 Log.i("MovieRepo", "Trying YTS for '${detail.title}'")
                 val ytsResponse = ytsApi.searchMovies(detail.title)
                 val ytsMovie = ytsResponse.data.movies
@@ -158,6 +141,23 @@ class MovieRepository @Inject constructor(
                 ytsMovie?.torrents?.map { it.toDomain() } ?: emptyList()
             } catch (e: Exception) {
                 Log.w("MovieRepo", "YTS failed: ${e.message}")
+                emptyList()
+            }
+        }
+
+        if (torrents.isEmpty()) {
+            torrents = try {
+                Log.i("MovieRepo", "Trying TPB for '${detail.title}'")
+                val query = "${detail.title} $year"
+                val results = pirateBayApi.search(query)
+                    .filter { it.seedCount > 0 && it.info_hash.length == 40 }
+                    .filter { matchesTorrent(it.name, detail.title, year) }
+                    .sortedByDescending { it.seedCount }
+                    .take(6)
+                Log.i("MovieRepo", "TPB: ${results.size} matched out of search results")
+                results.map { it.toDomain() }
+            } catch (e: Exception) {
+                Log.w("MovieRepo", "TPB failed: ${e.message}")
                 emptyList()
             }
         }
@@ -239,7 +239,8 @@ class MovieRepository @Inject constructor(
         seeds = seeds,
         peers = peers,
         size = size,
-        sizeBytes = sizeBytes
+        sizeBytes = sizeBytes,
+        torrentUrl = url.ifBlank { null }
     )
 
     private fun PirateBayResult.toDomain() = TorrentInfo(

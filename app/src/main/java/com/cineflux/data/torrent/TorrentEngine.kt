@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -21,7 +23,8 @@ import javax.inject.Singleton
 @Singleton
 class TorrentEngine @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val preferencesManager: com.cineflux.data.PreferencesManager
+    private val preferencesManager: com.cineflux.data.PreferencesManager,
+    private val httpClient: OkHttpClient
 ) {
     private var sessionManager: Any? = null
     private var scope: CoroutineScope? = null
@@ -241,9 +244,14 @@ class TorrentEngine @Inject constructor(
         }
     }
 
-    fun addDownload(magnetUrl: String, savePath: String = defaultSavePath, skipCheck: Boolean = false): String {
+    fun addDownload(
+        magnetUrl: String,
+        savePath: String = defaultSavePath,
+        skipCheck: Boolean = false,
+        torrentUrl: String? = null
+    ): String {
         val infoHash = extractInfoHash(magnetUrl)
-        Log.i(TAG, "addDownload: hash=$infoHash skipCheck=$skipCheck")
+        Log.i(TAG, "addDownload: hash=$infoHash torrentUrl=${torrentUrl != null} skipCheck=$skipCheck")
 
         if (!nativeAvailable) start()
         if (!nativeAvailable) {
@@ -270,24 +278,21 @@ class TorrentEngine @Inject constructor(
                 }
 
                 val resumeFile = File(resumeDir, "$infoHash.resume")
+                var added = false
+
                 if (skipCheck && resumeFile.exists()) {
-                    Log.i(TAG, "Loading resume data for $infoHash")
-                    val bytes = resumeFile.readBytes()
-                    val vec = org.libtorrent4j.Vectors.bytes2byte_vector(bytes)
-                    val ec = org.libtorrent4j.swig.error_code()
-                    val params = org.libtorrent4j.swig.libtorrent.read_resume_data_ex(vec, ec)
-                    if (ec.value() == 0) {
-                        params.setSave_path(saveDir.absolutePath)
-                        sm.swig().async_add_torrent(params)
-                        delay(2000)
-                    } else {
-                        Log.w(TAG, "Resume data invalid: ${ec.message()}, falling back to fresh")
-                        sm.download(magnetUrl, saveDir, org.libtorrent4j.swig.torrent_flags_t())
-                    }
-                } else {
-                    Log.i(TAG, "Resolving metadata (fresh)...")
+                    added = addFromResumeData(sm, resumeFile, saveDir)
+                }
+
+                if (!added && torrentUrl != null) {
+                    added = addFromTorrentUrl(sm, torrentUrl, saveDir)
+                }
+
+                if (!added) {
+                    Log.i(TAG, "Falling back to magnet link")
                     sm.download(magnetUrl, saveDir, org.libtorrent4j.swig.torrent_flags_t())
                 }
+
                 Log.i(TAG, "Torrent added for $infoHash")
 
                 val handle = sm.find(org.libtorrent4j.Sha1Hash.parseHex(infoHash))
@@ -305,6 +310,48 @@ class TorrentEngine @Inject constructor(
         }
 
         return infoHash
+    }
+
+    private fun addFromTorrentUrl(sm: org.libtorrent4j.SessionManager, url: String, saveDir: File): Boolean {
+        return try {
+            Log.i(TAG, "Fetching .torrent from $url")
+            val request = Request.Builder().url(url)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android) CineFlux/1.0")
+                .build()
+            val response = httpClient.newCall(request).execute()
+            if (!response.isSuccessful) {
+                Log.w(TAG, ".torrent fetch failed: HTTP ${response.code}")
+                return false
+            }
+            val bytes = response.body?.bytes() ?: return false
+            val ti = org.libtorrent4j.TorrentInfo(bytes)
+            sm.download(ti, saveDir)
+            Log.i(TAG, "Added via .torrent file: ${ti.name()} (${ti.numPieces()} pieces)")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, ".torrent fetch/parse failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun addFromResumeData(sm: org.libtorrent4j.SessionManager, resumeFile: File, saveDir: File): Boolean {
+        return try {
+            Log.i(TAG, "Loading resume data from ${resumeFile.name}")
+            val bytes = resumeFile.readBytes()
+            val vec = org.libtorrent4j.Vectors.bytes2byte_vector(bytes)
+            val ec = org.libtorrent4j.swig.error_code()
+            val params = org.libtorrent4j.swig.libtorrent.read_resume_data_ex(vec, ec)
+            if (ec.value() != 0) {
+                Log.w(TAG, "Resume data invalid: ${ec.message()}")
+                return false
+            }
+            params.setSave_path(saveDir.absolutePath)
+            sm.swig().async_add_torrent(params)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Resume data load failed: ${e.message}")
+            false
+        }
     }
 
     private fun watchChecking(infoHash: String, handle: org.libtorrent4j.TorrentHandle) {
